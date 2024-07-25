@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "bucha"
+version = "0.1.0"
+description = ""
+authors = ["Manuel Fideles <manuel.fideles@redlightsoft.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pocketbase = "^0.12.1"
+pypdf = "^4.3.1"
+slack-sdk = "^3.31.0"
+lxml-html-clean = "^0.1.1"
+python-dotenv = "^1.0.1"
+beautifulsoup4 = "^4.12.3"
+requests = "^2.32.3"
+facebook-scraper = "^0.2.59"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
