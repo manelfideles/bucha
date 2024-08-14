@@ -47,6 +47,4 @@ The bot has no commands for now, it's scheduled to run automatically w/ a cronjo
 
 ## Maintenance
 
-To add restaurants to search the menus for, edit the `bucha.sh` file with the following information:
-- Get the username from the omnibar in your browser - i.e. `www.facebook.com/RestauranteOsManos2017` -> the username is `RestauranteOsManos2017`
-- Add the username to the `restaurants` array and its corresponding sed pattern in the `get_sed_pattern` method.
+N/A
