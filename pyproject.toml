@@ -15,6 +15,7 @@ python-dotenv = "^1.0.1"
 beautifulsoup4 = "^4.12.3"
 requests = "^2.32.3"
 facebook-scraper = "^0.2.59"
+selenium = "^4.23.1"
 
 
 [build-system]
