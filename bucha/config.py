@@ -12,5 +12,7 @@ class Config:
     scraper_logs_dir: Path = logs_dir / "scraper"
     slack_bot_logs_dir: Path = logs_dir / "slack_bot"
 
+    default_driver_wait_timeout: int = 20
+
 
 config = Config()

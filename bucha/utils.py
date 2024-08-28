@@ -28,9 +28,6 @@ class Menu:
             f"{restaurant.emoji} - {restaurant.alias} [{restaurant.daily_price} Eur]"
         )
 
-    def __str__(self) -> str:
-        return f"{self.display_name}\n{self.body}\n{self.img_path}"
-
     def to_dict(self) -> dict:
         return asdict(self)
 
