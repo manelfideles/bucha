@@ -6,12 +6,13 @@ import os
 import re
 import warnings
 from datetime import date
-from logging import getLogger
+from pathlib import Path
 from time import sleep
 
 import requests
-from config import Restaurant, restaurants
+from config import config
 from dotenv import load_dotenv
+from logger import logger
 from selenium import webdriver
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
@@ -19,10 +20,10 @@ from selenium.common.exceptions import (
 )
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-
-logger = getLogger("scraper")
+from utils import Menu, Restaurant, load_restaurants
 
 # Setup ----
 for w in [SyntaxWarning, UserWarning]:
@@ -72,7 +73,7 @@ class Scraper:
 
     def click_xpath(self, xpath: str) -> None:
         try:
-            element = WebDriverWait(self.driver, 2).until(
+            element = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, xpath))
             )
             self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
@@ -119,11 +120,16 @@ class Scraper:
         ).click()
 
         try:
-            # find username tag
-            username = self.driver.find_element(
-                By.XPATH,
-                '//*[@id=":Rmkql9ad5bb9l5qq9papd5aq:"]/span',
-            ).text
+            # check if login is successful
+            username = (
+                WebDriverWait(self.driver, 10)
+                .until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, '//*[@id=":Rmkql9ad5bb9l5qq9papd5aq:"]/span')
+                    )
+                )
+                .text
+            )
         except NoSuchElementException as e:
             logger.error(f"Login unsuccessful: {e}")
             return
@@ -131,124 +137,129 @@ class Scraper:
         logger.info(f"Logged in to {username}.")
         sleep(2)
 
-    def get_last_post_text(self, alias: str) -> str:
-        account_feed = self.driver.find_element(
-            By.XPATH, "//div[@data-pagelet='ProfileTimeline']"
-        )
-
-        # Click "Ver mais" button on the first post to expand content
-        try:
-            self.click_xpath("//div[contains(text(), 'Ver mais')]")
-        except Exception as e:
-            logger.error(e)
-
-        post = account_feed.find_element(By.XPATH, "./div[1]")
-        # timestamp = post.find_element(
-        #     By.XPATH,
-        #     "/html/body/div[1]/div/div/div[1]/div/div[3]/div/div/div[1]/div[1]/div/div/div[4]/div[2]/div/div[2]/div[2]/div[1]/div/div/div/div/div/div/div/div/div/div/div[2]/div/div/div[2]/div/div[2]/div/div[2]/span/div/span[1]/span/a/span",
-        # ).text
-
-        # logger.info(timestamp)
-
-        # if "dias" not in timestamp:
-        if post:
-            logger.info(
-                f"Text-based menu for account '{alias}' extracted successfully."
-            )
-            return post.text
-        # logger.warning("Latest post is from yesterday or older.")
-        return "O menu de hoje (ainda) não está disponível."
-
-    def get_last_post_image(self, account_id: str, alias: str) -> ...:
-        account_feed = self.driver.find_element(
-            By.XPATH, "//div[@data-pagelet='ProfileTimeline']"
-        )
-
+    def download_post_image(self, post: WebElement, alias: str) -> Path | None:
+        """
+        Downloads first image of `post` and returns its absolute local `Path`.
+        """
         # Get image source
-        img = account_feed.find_element(
-            By.XPATH, ".//img[contains(@src, 'scontent')][1]"
-        )
-        src = img.get_attribute("src")
+        try:
+            img = post.find_element(By.XPATH, ".//img[contains(@src, 'scontent')][1]")
+            src = img.get_attribute("src")
+        except NoSuchElementException as e:
+            logger.error(f"No image found in post from '{alias}': {e}")
 
         # Download the image
         response = requests.get(src, stream=True)
         if response.status_code == 200:
-            path = os.path.join("imgs", f"{account_id}.jpg")
+            path = config.imgs_dir / f"{alias.lower().replace(' ', '-')}.jpg"
             with open(path, "wb") as file:
-                for chunk in response.iter_content(chunk_size=1024):
-                    if chunk:
-                        file.write(chunk)
-            logger.info(
-                f"Image-based menu for account '{alias}' downloaded successfully."
-            )
+                _ = [
+                    file.write(chunk)
+                    for chunk in response.iter_content(chunk_size=1024)
+                    if chunk
+                ]
+            logger.info(f"Image-based menu downloaded successfully.")
+            return Path(path).absolute()
         else:
             logger.error(f"Something went wrong when fetching {src}.")
+            return None
 
-    def format_post_text(
+    def get_post_text(self, post: WebElement) -> str:
+        try:
+            # Click "Ver mais" button on the first post to expand content
+            self.click_xpath("//div[contains(text(), 'Ver mais')]")
+            # post = timeline.find_element(By.XPATH, "./div[1]")
+        except NoSuchElementException:
+            logger.warning(
+                "Could not find a <div> element containing the text 'Ver mais'."
+            )
+            return
+
+        logger.info(f"Text-based menu extracted successfully.")
+        return post.text
+
+    def format_post_body_text(
         self,
         raw_text: str | None,
-        r: Restaurant,
         pat: str = r"(.*?)(Gosto|Todas as reações)",
-    ) -> dict[str, str] | None:
-        display_name = f"{r.emoji} - {r.alias} [{r.daily_price} Eur]"
-        menu_info: dict[str, str] = {"name": display_name, "body": ""}
-
+    ) -> Menu:
+        body_text = "Failed to extract post text."
         if raw_text:
             lines = raw_text.strip().splitlines()
-            body_text = "\n".join(lines[3:])
-            match: re.Match | None = re.compile(pat, re.DOTALL).search(body_text)
-            formatted_body = ""
+            match: re.Match | None = re.compile(pat, re.DOTALL).search(
+                "\n".join(lines[4:])
+            )
             if match:
-                matched_text: str = match.group(0)
-                formatted_body = "\n".join(matched_text.strip().splitlines()[:-1])
-            else:
-                logger.warning(f"Failed to extract post text for account '{r.alias}'.")
-                formatted_body = "Failed to extract post text."
-
-            menu_info["body"] = formatted_body
-
-        return menu_info
-
-    def format_menu_info(self, menu_info: dict[str, str]) -> str:
-        return f"{menu_info['name']}\n{menu_info['body']}\n"
+                match_text: str = match.group(0)
+                body_text = "\n".join(match_text.strip().splitlines()[:-1])
+        return body_text
 
     def save_menu(self, msg: str) -> None:
         today: str = date.today().isoformat().replace("-", "_")
-        with open(f"menus/{today}.txt", "w+") as f:
+        with open(config.menus_dir / f"{today}.txt", "w+") as f:
             f.write(msg)
-        print(f"Today's menu saved in menus/{today}.txt.")
+        logger.info(f"Today's menu saved in {config.menus_dir}/{today}.txt.")
+
+    def find_timeline(self) -> WebElement | None:
+        try:
+            timeline = WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//div[@data-pagelet='ProfileTimeline']")
+                )
+            )
+            return timeline
+        except NoSuchElementException as e:
+            logger.error(f"Could not find profile timeline: {e}")
+            return None
+
+    def is_valid_post_timestamp(post: WebElement) -> bool:
+        timestamp: dict[str, int | str | None] = {"amount": None, "unit": None}
+        try:
+            raw_timestamp = post.find_element(
+                By.XPATH,
+                "//a/span[contains(text(), 'horas') or contains(text(), 'dias') or contains(text(), 'min')]",
+            ).text
+            timestamp = dict(zip(timestamp, raw_timestamp.split(" ")))
+        except NoSuchElementException:
+            logger.error(f"Could not find timestamp element.")
+
+        if timestamp["unit"] == "dias" and timestamp["amount"] >= 1:
+            return "O menu de hoje não está disponível."
 
     def __call__(self) -> str:
         self.login()
-        header = f"Ora viva camaradas! Aqui vão os menus de hoje ({date.today().isoformat()}). Bom proveito 🥘\n\n"
         menus: list[str] = []
         for restaurant in self.accounts:
-            logger.info(f"Fetching menu for {restaurant.account_id}...")
+            logger.info(
+                f"Fetching menu for account {restaurant.account_id} aka '{restaurant.alias}'."
+            )
             self.get_page(restaurant.account_id)
+            timeline = self.find_timeline()
+            last_post = timeline.find_element(By.XPATH, "./div[1]")
+            menu = Menu(restaurant)
             if restaurant.scraping_mode == "text":
-                raw_text = self.get_last_post_text(restaurant.alias)
-                menu = self.format_post_text(raw_text=raw_text, r=restaurant)
+                raw_post_text = self.get_post_text(post=last_post)
+                menu.body = self.format_post_body_text(raw_post_text)
             elif restaurant.scraping_mode == "image":
-                self.get_last_post_image(
-                    restaurant.account_id,
-                    restaurant.alias,
-                )
+                menu.img_path = self.download_post_image(last_post, restaurant.alias)
             else:
                 logger.warning(
-                    f"Invalid mode for account {restaurant.account_id}. Use either 'image' or 'text'."
+                    f"Invalid mode for account '{restaurant.account_id}'. Use either 'image' or 'text'."
                 )
                 continue
-            if menu:
-                logger.info(f"Successfully fetched {restaurant.account_id}'s menu!")
-            menus.append(self.format_menu_info(menu))
+            menus.append(str(menu))
 
-        msg = header + "\n".join(menus)
+        msg = "\n".join(menus)
+
+        # TODO: The following method should create a new pdf
+        # with the extracted text + the images, labeled with their respective restaurant
         self.save_menu(msg)
         return msg
 
 
 if __name__ == "__main__":
     logger.info("Starting up scraper...")
+    restaurants = load_restaurants()
     msg = Scraper(
         accounts=restaurants,
         base_url="https://www.facebook.com/",

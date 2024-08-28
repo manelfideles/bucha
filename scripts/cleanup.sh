@@ -1,7 +1,6 @@
 #!/bin/bash
 
-cd menus
-rm -rf *.txt
-cd ..
-cd imgs
-rm -rf *.jpg
+cd out
+rm -rf menus/*.txt
+rm -rf imgs/*.jpg
+rm -rf logs/*.log

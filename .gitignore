@@ -1,7 +1,4 @@
 .env
 .venv
-logs
-menus
-login_error.html
-imgs
+out
 __pycache__
