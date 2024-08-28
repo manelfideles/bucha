@@ -2,17 +2,16 @@
 Scrape latest posts from specified restaurants.
 """
 
-import argparse
 import os
 import re
 import warnings
 from datetime import date
+from logging import getLogger
 from time import sleep
 
 import requests
+from config import Restaurant, restaurants
 from dotenv import load_dotenv
-from PIL import Image
-from pytesseract import pytesseract
 from selenium import webdriver
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
@@ -22,6 +21,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+
+logger = getLogger("scraper")
 
 # Setup ----
 for w in [SyntaxWarning, UserWarning]:
@@ -43,7 +44,7 @@ class Scraper:
 
     driver: WebDriver
     credentials: dict[str, str] = CREDENTIALS
-    accounts: list[tuple[str, str]]
+    accounts: list[Restaurant]
     base_url: str
 
     def __init__(
@@ -52,7 +53,7 @@ class Scraper:
         base_url: str,
     ) -> None:
         self.driver = self.create_driver()
-        self.accounts = [tuple(a.replace("-", " ").split(",")) for a in accounts]
+        self.accounts = accounts
         self.base_url = base_url
 
     def create_driver(self) -> WebDriver:
@@ -61,25 +62,30 @@ class Scraper:
         return webdriver.Firefox(options=options)
 
     def get_page(self, account_id: str) -> None:
-        self.driver.get(self.base_url + account_id)
-        sleep(2)
+        page: str = self.base_url + account_id
+        try:
+            self.driver.get(page)
+            sleep(2)
+        except Exception as e:
+            logger.error(f"Couldn't fetch requested web page: {page}")
+            raise e
 
     def click_xpath(self, xpath: str) -> None:
         try:
-            # find element
             element = WebDriverWait(self.driver, 2).until(
                 EC.element_to_be_clickable((By.XPATH, xpath))
             )
-
-            # scroll into view
             self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
         except NoSuchElementException as e:
-            print(f"Unable to locate element: {e}")
+            logger.error(f"Unable to locate element: {e}")
             return
 
         try:
             element.click()
         except ElementClickInterceptedException:
+            logger.warning(
+                "Unable to use <element>.click() method. Trying JavaScript-based approach."
+            )
             self.driver.execute_script("arguments[0].click();", element)
         sleep(1)
 
@@ -90,7 +96,7 @@ class Scraper:
                 EC.element_to_be_clickable((By.XPATH, xpath))
             )
         except NoSuchElementException as e:
-            print(f"Unable to locate element: {e}")
+            logger.error(f"Unable to locate element: {e}")
             return
 
         element.send_keys(keys)
@@ -112,6 +118,17 @@ class Scraper:
             EC.element_to_be_clickable((By.NAME, "login"))
         ).click()
 
+        try:
+            # find username tag
+            username = self.driver.find_element(
+                By.XPATH,
+                '//*[@id=":Rmkql9ad5bb9l5qq9papd5aq:"]/span',
+            ).text
+        except NoSuchElementException as e:
+            logger.error(f"Login unsuccessful: {e}")
+            return
+
+        logger.info(f"Logged in to {username}.")
         sleep(2)
 
     def get_last_post_text(self, alias: str) -> str:
@@ -123,14 +140,24 @@ class Scraper:
         try:
             self.click_xpath("//div[contains(text(), 'Ver mais')]")
         except Exception as e:
-            print(e)
+            logger.error(e)
 
-        last_post = account_feed.find_element(By.XPATH, "./div[1]")
+        post = account_feed.find_element(By.XPATH, "./div[1]")
+        # timestamp = post.find_element(
+        #     By.XPATH,
+        #     "/html/body/div[1]/div/div/div[1]/div/div[3]/div/div/div[1]/div[1]/div/div/div[4]/div[2]/div/div[2]/div[2]/div[1]/div/div/div/div/div/div/div/div/div/div/div[2]/div/div/div[2]/div/div[2]/div/div[2]/span/div/span[1]/span/a/span",
+        # ).text
 
-        if last_post:
-            print(f"Text-based menu for account '{alias}' extracted successfully.")
-            return last_post.text
-        return None
+        # logger.info(timestamp)
+
+        # if "dias" not in timestamp:
+        if post:
+            logger.info(
+                f"Text-based menu for account '{alias}' extracted successfully."
+            )
+            return post.text
+        # logger.warning("Latest post is from yesterday or older.")
+        return "O menu de hoje (ainda) não está disponível."
 
     def get_last_post_image(self, account_id: str, alias: str) -> ...:
         account_feed = self.driver.find_element(
@@ -145,53 +172,45 @@ class Scraper:
 
         # Download the image
         response = requests.get(src, stream=True)
-        path = os.path.join("imgs", f"{account_id}.jpg")
-        with open(path, "wb") as file:
-            for chunk in response.iter_content(chunk_size=1024):
-                if chunk:
-                    file.write(chunk)
-        print(f"Image-based menu for account '{alias}' downloaded successfully.")
-
-    def extract_text_from_image(self, image_path: str) -> str:
-        img = Image.open(image_path)
-        text = pytesseract.image_to_string(img)
-        return text
-
-    def format_image_text(self, raw_text: str, alias: str) -> str:
-        menu_info = {
-            "name": alias,
-            "body": (
-                raw_text.strip().replace("\n\n", "\n")
-                if len(raw_text) > 50
-                else "Not enough text available for extraction."
-            ),
-        }
-        return menu_info
+        if response.status_code == 200:
+            path = os.path.join("imgs", f"{account_id}.jpg")
+            with open(path, "wb") as file:
+                for chunk in response.iter_content(chunk_size=1024):
+                    if chunk:
+                        file.write(chunk)
+            logger.info(
+                f"Image-based menu for account '{alias}' downloaded successfully."
+            )
+        else:
+            logger.error(f"Something went wrong when fetching {src}.")
 
     def format_post_text(
-        self, raw_text: str | None, alias: str, pat: str
+        self,
+        raw_text: str | None,
+        r: Restaurant,
+        pat: str = r"(.*?)(Gosto|Todas as reações)",
     ) -> dict[str, str] | None:
-        menu_info: dict[str, str] = {
-            "name": alias,
-            "body": "",
-        }
+        display_name = f"{r.emoji} - {r.alias} [{r.daily_price} Eur]"
+        menu_info: dict[str, str] = {"name": display_name, "body": ""}
 
         if raw_text:
             lines = raw_text.strip().splitlines()
             body_text = "\n".join(lines[3:])
-            match: re.Match = re.compile(pat, re.DOTALL).search(body_text)
+            match: re.Match | None = re.compile(pat, re.DOTALL).search(body_text)
+            formatted_body = ""
             if match:
                 matched_text: str = match.group(0)
-                formatted_body: str = (
-                    "\n".join(matched_text.strip().splitlines()[:-1]) if match else ""
-                )
+                formatted_body = "\n".join(matched_text.strip().splitlines()[:-1])
+            else:
+                logger.warning(f"Failed to extract post text for account '{r.alias}'.")
+                formatted_body = "Failed to extract post text."
+
             menu_info["body"] = formatted_body
 
         return menu_info
 
     def format_menu_info(self, menu_info: dict[str, str]) -> str:
-        sep: str = "-" * 20
-        return f"*{menu_info['name']}*\n{sep}\n{menu_info['body']}\n"
+        return f"{menu_info['name']}\n{menu_info['body']}\n"
 
     def save_menu(self, msg: str) -> None:
         today: str = date.today().isoformat().replace("-", "_")
@@ -203,22 +222,24 @@ class Scraper:
         self.login()
         header = f"Ora viva camaradas! Aqui vão os menus de hoje ({date.today().isoformat()}). Bom proveito 🥘\n\n"
         menus: list[str] = []
-        for id, alias, mode in self.accounts:
-            self.get_page(id)
-            if mode == "text":
-                raw_text = self.get_last_post_text(alias)
-                menu = self.format_post_text(
-                    raw_text=raw_text,
-                    alias=alias,
-                    pat=r"(.*?)Todas as reações",
+        for restaurant in self.accounts:
+            logger.info(f"Fetching menu for {restaurant.account_id}...")
+            self.get_page(restaurant.account_id)
+            if restaurant.scraping_mode == "text":
+                raw_text = self.get_last_post_text(restaurant.alias)
+                menu = self.format_post_text(raw_text=raw_text, r=restaurant)
+            elif restaurant.scraping_mode == "image":
+                self.get_last_post_image(
+                    restaurant.account_id,
+                    restaurant.alias,
                 )
-            elif mode == "image":
-                self.get_last_post_image(id, alias)
-                raw_text = self.extract_text_from_image(f"imgs/{id}.jpg")
-                menu = self.format_image_text(raw_text, alias)
             else:
-                print(f"Invalid mode for account {id}. Use either 'image' or 'text'.")
+                logger.warning(
+                    f"Invalid mode for account {restaurant.account_id}. Use either 'image' or 'text'."
+                )
                 continue
+            if menu:
+                logger.info(f"Successfully fetched {restaurant.account_id}'s menu!")
             menus.append(self.format_menu_info(menu))
 
         msg = header + "\n".join(menus)
@@ -227,18 +248,9 @@ class Scraper:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        prog="scraper.py",
-        description="A simple Facebook scraper to fetch a given restaurant's menu",
-    )
-    parser.add_argument(
-        "accounts",
-        help="A list of restaurant Facebook usernames",
-        type=str,
-    )
-    args: dict[str, str] = vars(parser.parse_args())
-
+    logger.info("Starting up scraper...")
     msg = Scraper(
-        accounts=args["accounts"].split(),
+        accounts=restaurants,
         base_url="https://www.facebook.com/",
     )()
+    logger.info("Done.")
