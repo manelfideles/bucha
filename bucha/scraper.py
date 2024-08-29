@@ -6,10 +6,8 @@ import os
 import re
 import warnings
 from datetime import date
-from time import sleep
 from typing import Callable
 
-import fpdf
 from config import config
 from dotenv import load_dotenv
 from logger import logger
@@ -48,7 +46,6 @@ class Scraper:
     credentials: dict[str, str] = CREDENTIALS
     accounts: list[Restaurant]
     base_url: str
-    pdf_writer: fpdf.FPDF
 
     def __init__(
         self,
@@ -62,10 +59,6 @@ class Scraper:
         self.url_shortener = Shortener()
         self.accounts = accounts
         self.base_url = base_url
-        self.pdf_writer = fpdf.FPDF()
-        self.pdf_writer.add_font(
-            "dejavu-sans", style="", fname=config.assets_dir / "dejavu_sans.ttf"
-        )
 
     def create_driver(self) -> WebDriver:
         options = webdriver.FirefoxOptions()
