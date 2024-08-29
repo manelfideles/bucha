@@ -6,13 +6,14 @@ import os
 import re
 import warnings
 from datetime import date
-from pathlib import Path
+from time import sleep
+from typing import Callable
 
 import fpdf
-import requests
 from config import config
 from dotenv import load_dotenv
 from logger import logger
+from pyshorteners import Shortener
 from selenium import webdriver
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
@@ -55,6 +56,10 @@ class Scraper:
         base_url: str,
     ) -> None:
         self.driver = self.create_driver()
+        self.webdriver_wait = WebDriverWait(
+            self.driver, config.default_driver_wait_timeout
+        )
+        self.url_shortener = Shortener()
         self.accounts = accounts
         self.base_url = base_url
         self.pdf_writer = fpdf.FPDF()
@@ -75,15 +80,15 @@ class Scraper:
             logger.error(f"Couldn't fetch requested web page: {page}")
             raise e
 
-    def click_xpath(self, xpath: str) -> None:
+    def click_xpath(self, expected_condition: Callable) -> None:
         try:
-            element = WebDriverWait(
+            element: WebElement = WebDriverWait(
                 self.driver, config.default_driver_wait_timeout
-            ).until(EC.element_to_be_clickable((By.XPATH, xpath)))
+            ).until(expected_condition)
             self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
         except NoSuchElementException as e:
             logger.error(f"Unable to locate element: {e}")
-            return
+            return None
 
         try:
             element.click()
@@ -109,72 +114,69 @@ class Scraper:
         self.get_page("")
 
         # handle cookie modal
-        self.click_xpath(
-            "/html/body/div[3]/div[2]/div/div/div/div/div[3]/div[2]/div/div[2]/div[1]/div"
-        )
+        cookie_accept_xpath = "/html/body/div[3]/div[2]/div/div/div/div/div[3]/div[2]/div/div[2]/div[1]/div"
+        self.click_xpath(EC.element_to_be_clickable((By.XPATH, cookie_accept_xpath)))
 
         # set login form fields
         self.send_keys_xpath('//*[@id="email"]', self.credentials["email"])
         self.send_keys_xpath('//*[@id="pass"]', self.credentials["password"])
 
-        WebDriverWait(self.driver, config.default_driver_wait_timeout).until(
+        self.webdriver_wait.until(
             EC.element_to_be_clickable((By.NAME, "login"))
         ).click()
 
         try:
             # check if login is successful
-            username = (
-                WebDriverWait(self.driver, config.default_driver_wait_timeout)
-                .until(
-                    EC.presence_of_element_located(
-                        (By.XPATH, '//*[@id=":Rmkql9ad5bb9l5qq9papd5aq:"]/span')
-                    )
+            username = self.webdriver_wait.until(
+                EC.presence_of_element_located(
+                    (By.XPATH, '//*[@id=":Rmkql9ad5bb9l5qq9papd5aq:"]/span')
                 )
-                .text
-            )
+            ).text
         except NoSuchElementException as e:
             logger.error(f"Login unsuccessful: {e}")
             return
 
         logger.info(f"Logged in to {username}.")
 
-    def download_post_image(self, post: WebElement, alias: str) -> Path | None:
+    def get_img_src(self, post: WebElement, alias: str) -> str | None:
         """
         Downloads first image of `post` and returns its absolute local `Path`.
         """
         # Get image source
         try:
-            img = post.find_element(By.XPATH, ".//img[contains(@src, 'scontent')][1]")
+            img = self.webdriver_wait.until(
+                lambda _: post.find_element(
+                    By.XPATH, ".//img[contains(@src, 'scontent')][1]"
+                )
+            )
             src = img.get_attribute("src")
         except NoSuchElementException as e:
             logger.error(f"No image found in post from '{alias}': {e}")
-            return
-
-        # Download the image
-        response = requests.get(src, stream=True)
-        if response.status_code == 200:
-            path = config.imgs_dir / f"{alias.lower().replace(' ', '-')}.jpg"
-            with open(path, "wb") as file:
-                _ = [
-                    file.write(chunk)
-                    for chunk in response.iter_content(chunk_size=1024)
-                    if chunk
-                ]
-            logger.info(f"Image-based menu downloaded successfully.")
-            return Path(path).absolute()
-        else:
-            logger.error(f"Something went wrong when fetching {src}.")
             return None
+        return self.url_shortener.tinyurl.short(src)
+
+    def find_last_post(self, timeline: WebElement) -> WebElement:
+        last_post = timeline.find_element(By.XPATH, "./div[1]")
+        logger.debug(f"last_post.text: {last_post.text}")
+        return last_post
 
     def get_post_text(self, post: WebElement) -> str:
+        # Expand post content
         try:
-            # Click "Ver mais" button on the first post to expand content
-            self.click_xpath("//div[contains(text(), 'Ver mais')]")
-        except Exception as e:
-            logger.error(f"Something went wrong when expanding post content: {e}")
-            return None
+            self.click_xpath(
+                lambda _: post.find_element(
+                    By.XPATH, "//div[contains(text(), 'Ver mais')]"
+                )
+            )
+        except NoSuchElementException:
+            logger.error("Could not find 'Ver mais' button in post.")
 
-        logger.info(f"Text-based menu extracted successfully.")
+        if not post.text or len(post.text) < 10:
+            logger.error("Failed to extract post text.")
+            return "Failed to extract post text."
+
+        logger.debug(post.text)
+        logger.info("Text-based menu extracted successfully.")
         return post.text
 
     def format_post_body_text(
@@ -182,7 +184,7 @@ class Scraper:
         raw_text: str | None,
         pat: str = r"(.*?)(Gosto|Todas as reações)",
     ) -> str:
-        body_text = "Failed to extract post text."
+        body_text = ""
         if raw_text:
             lines = raw_text.strip().splitlines()
             match: re.Match | None = re.compile(pat, re.DOTALL).search(
@@ -191,10 +193,9 @@ class Scraper:
             if match:
                 match_text: str = match.group(0)
                 body_text = "\n".join(match_text.strip().splitlines()[:-1])
-            else:
-                logger.warning("No matches found in the raw post text.")
-        else:
-            logger.warning("Failed to format post body text.")
+                return body_text
+            logger.warning("No matches found in the raw post text.")
+        logger.warning("Failed to format post body text.")
         return body_text
 
     def save_menu(self, msg: str) -> None:
@@ -202,28 +203,6 @@ class Scraper:
         with open(config.menus_dir / f"{today}.txt", "w+") as f:
             f.write(msg)
         logger.info(f"Today's menu saved in {config.menus_dir}/{today}.txt.")
-
-    def build_pdf(self, menus: list[Menu]) -> ...:
-        def _line_break(n=2) -> None:
-            for _ in range(n):
-                self.pdf_writer.ln()
-
-        self.pdf_writer.add_page()
-        for m in menus:
-            self.pdf_writer.set_font("dejavu-sans", size=12)
-            self.pdf_writer.write(text=m.display_name)
-            self.pdf_writer.set_font_size(9)
-            _line_break()
-            if m.body:
-                self.pdf_writer.write(text=m.body)
-            elif m.img_path:
-                self.pdf_writer.image(m.img_path, h=100)
-            else:
-                logger.error("Menu object has no 'body' nor 'img_path'. Skipping.")
-                self.pdf_writer.write(text="N/A")
-            _line_break()
-
-        self.pdf_writer.output(config.menus_dir / "test.pdf")
 
     def find_timeline(self) -> WebElement | None:
         try:
@@ -254,7 +233,7 @@ class Scraper:
             timestamp_parts = raw_timestamp.text.split(" ")
             if (
                 len(timestamp_parts) > 2
-                or int(timestamp_parts[0]) >= 2
+                or int(timestamp_parts[0]) >= 1
                 and timestamp_parts[1] == "dias"
             ):
                 return True
@@ -267,18 +246,18 @@ class Scraper:
         menus: list[Menu] = []
         for restaurant in self.accounts:
             logger.info(
-                f"Fetching menu for account {restaurant.account_id} aka '{restaurant.alias}'."
+                f"Fetching menu for account '{restaurant.account_id}' aka '{restaurant.alias}'."
             )
             self.get_page(restaurant.account_id)
             timeline = self.find_timeline()
-            last_post = timeline.find_element(By.XPATH, "./div[1]")
+            last_post = self.find_last_post(timeline)
             menu = Menu(restaurant)
             if not self.is_restaurant_closed():
                 if restaurant.scraping_mode == "text":
                     raw_post_text = self.get_post_text(post=last_post)
                     menu.body = self.format_post_body_text(raw_post_text)
                 elif restaurant.scraping_mode == "image":
-                    menu.img_path = self.download_post_image(
+                    menu.img_path = self.get_img_src(
                         last_post,
                         restaurant.alias,
                     )
@@ -289,17 +268,12 @@ class Scraper:
                     continue
             else:
                 logger.warning(f"Restaurant is closed.")
-                menu.body = "Fechado."
-            menus.append(menu)
+                menu.body = "Fechado (ou ainda não publicou o menu de hoje)."
+            menus.append(str(menu))
 
-        # TODO: The following method should create a new pdf
-        # with the extracted text + the images, labeled with their respective restaurant
-        # self.save_menu(msg)
-        self.build_pdf(menus)
+        msg = "\n".join(menus)
+        self.save_menu(msg)
+        return msg
 
 
-if __name__ == "__main__":
-    logger.info("Starting up scraper...")
-    restaurants = load_restaurants()
-    Scraper(accounts=restaurants, base_url="https://www.facebook.com/")()
-    logger.info("Done.")
+scraper = Scraper(accounts=load_restaurants(), base_url="https://www.facebook.com/")

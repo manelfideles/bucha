@@ -6,7 +6,6 @@ from pathlib import Path
 class Config:
     outputs_dir: Path = Path().parent / "out"
     assets_dir: Path = Path().parent / "assets"
-    imgs_dir: Path = outputs_dir / "imgs"
     menus_dir: Path = outputs_dir / "menus"
     logs_dir: Path = outputs_dir / "logs"
     scraper_logs_dir: Path = logs_dir / "scraper"
