@@ -16,6 +16,7 @@ from selenium import webdriver
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
     NoSuchElementException,
+    TimeoutException,
 )
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
@@ -75,11 +76,9 @@ class Scraper:
 
     def click_xpath(self, expected_condition: Callable) -> None:
         try:
-            element: WebElement = WebDriverWait(
-                self.driver, config.default_driver_wait_timeout
-            ).until(expected_condition)
+            element: WebElement = self.webdriver_wait.until(expected_condition)
             self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
-        except NoSuchElementException as e:
+        except (NoSuchElementException, TimeoutException) as e:
             logger.error(f"Unable to locate element: {e}")
             return None
 
@@ -94,12 +93,12 @@ class Scraper:
     def send_keys_xpath(self, xpath: str, keys: str) -> None:
         try:
             # find element
-            element = WebDriverWait(
-                self.driver, config.default_driver_wait_timeout
-            ).until(EC.element_to_be_clickable((By.XPATH, xpath)))
-        except NoSuchElementException as e:
+            element = self.webdriver_wait.until(
+                EC.element_to_be_clickable((By.XPATH, xpath))
+            )
+        except (NoSuchElementException, TimeoutException) as e:
             logger.error(f"Unable to locate element: {e}")
-            return
+            return None
 
         element.send_keys(keys)
 
@@ -143,40 +142,46 @@ class Scraper:
                 )
             )
             src = img.get_attribute("src")
-        except NoSuchElementException as e:
+        except (NoSuchElementException, TimeoutException) as e:
             logger.error(f"No image found in post from '{alias}': {e}")
-            return None
+            return f"No image found in post from '{alias}'"
         return self.url_shortener.tinyurl.short(src)
 
-    def find_last_post(self, timeline: WebElement) -> WebElement:
-        last_post = timeline.find_element(By.XPATH, "./div[1]")
+    def find_last_post(self, timeline: WebElement) -> WebElement | None:
+        try:
+            last_post = self.webdriver_wait.until(
+                lambda _: timeline.find_element(By.XPATH, "./div[1]")
+            )
+        except Exception as e:
+            logger.error(f"Unable to find last post in timeline: {e}")
+            return None
+        logger.debug(f"last_post.id: {last_post.id}")
+        logger.debug(f"last_post.accessible_name: {last_post.accessible_name}")
         logger.debug(f"last_post.text: {last_post.text}")
         return last_post
 
     def get_post_text(self, post: WebElement) -> str:
-        # Expand post content
+        # Expand post content if needed
         try:
             self.click_xpath(
                 lambda _: post.find_element(
                     By.XPATH, "//div[contains(text(), 'Ver mais')]"
                 )
             )
-        except NoSuchElementException:
-            logger.error("Could not find 'Ver mais' button in post.")
+        except Exception:
+            logger.warning("Could not find 'Ver mais' button in post.")
 
         if not post.text or len(post.text) < 10:
             logger.error("Failed to extract post text.")
-            return "Failed to extract post text."
+            return None
 
-        logger.debug(post.text)
+        logger.debug(f"post.text: {post.text}")
         logger.info("Text-based menu extracted successfully.")
         return post.text
 
     def format_post_body_text(
-        self,
-        raw_text: str | None,
-        pat: str = r"(.*?)(Gosto|Todas as reações)",
-    ) -> str:
+        self, raw_text: str, pat: str = r"(.*?)(Gosto|Todas as reações)"
+    ) -> str | None:
         body_text = ""
         if raw_text:
             lines = raw_text.strip().splitlines()
@@ -185,10 +190,16 @@ class Scraper:
             )
             if match:
                 match_text: str = match.group(0)
-                body_text = "\n".join(match_text.strip().splitlines()[:-1])
-                return body_text
-            logger.warning("No matches found in the raw post text.")
-        logger.warning("Failed to format post body text.")
+                post_body_lines = match_text.strip().splitlines()
+                if len(post_body_lines) < 2:
+                    logger.warning("Post too short. It's probably not a menu.")
+                    return "Fechado (ou ainda não publicou o menu de hoje)."
+                body_text = "\n".join(post_body_lines[:-1])
+                logger.debug(f"body_text: {body_text}")
+                if body_text:
+                    logger.info("Post text formatted successfully.")
+            else:
+                logger.warning("No matches found in the raw post text.")
         return body_text
 
     def save_menu(self, msg: str) -> None:
@@ -199,35 +210,31 @@ class Scraper:
 
     def find_timeline(self) -> WebElement | None:
         try:
-            timeline = WebDriverWait(
-                self.driver, config.default_driver_wait_timeout
-            ).until(
+            timeline = self.webdriver_wait.until(
                 EC.presence_of_element_located(
                     (By.XPATH, "//div[@data-pagelet='ProfileTimeline']")
                 )
             )
             return timeline
-        except NoSuchElementException as e:
+        except (NoSuchElementException, TimeoutException) as e:
             logger.error(f"Could not find profile timeline: {e}")
             return None
 
     def is_restaurant_closed(self) -> bool:
         try:
-            raw_timestamp: WebElement = WebDriverWait(
-                self.driver, config.default_driver_wait_timeout
-            ).until(
+            raw_timestamp: WebElement = self.webdriver_wait.until(
                 EC.presence_of_element_located(
                     (
                         By.XPATH,
-                        "//a/span[contains(., 'horas') or contains(., 'dias') or contains(., 'min') or (contains(., 'de') and contains(., 'às'))]",
+                        "//a[contains(@aria-label, 'horas') or contains(@aria-label, 'dias') or contains(@aria-label, 'min') or (contains(@aria-label, 'de') and contains(@aria-label, 'às'))]",
                     )
                 )
             )
             timestamp_parts = raw_timestamp.text.split(" ")
             if (
                 len(timestamp_parts) > 2
-                or int(timestamp_parts[0]) >= 1
-                and timestamp_parts[1] == "dias"
+                or (int(timestamp_parts[0]) >= 2 and timestamp_parts[1] == "dias")
+                or (int(timestamp_parts[0]) >= 14 and timestamp_parts[1] == "horas")
             ):
                 return True
             return False
@@ -260,7 +267,9 @@ class Scraper:
                     )
                     continue
             else:
-                logger.warning(f"Restaurant is closed.")
+                logger.warning(
+                    f"Restaurant is closed or hasn't yet posted today's menu."
+                )
                 menu.body = "Fechado (ou ainda não publicou o menu de hoje)."
             menus.append(str(menu))
 
