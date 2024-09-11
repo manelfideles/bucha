@@ -150,7 +150,7 @@ class Scraper:
     def find_last_post(self, timeline: WebElement) -> WebElement | None:
         try:
             last_post = self.webdriver_wait.until(
-                lambda _: timeline.find_element(By.XPATH, "./div[1]")
+                lambda _: timeline.find_element(By.XPATH, "./div[not(.//video)][1]")
             )
         except Exception as e:
             logger.error(f"Unable to find last post in timeline: {e}")
@@ -273,7 +273,10 @@ class Scraper:
                 menu.body = "Fechado (ou ainda não publicou o menu de hoje)."
             menus.append(str(menu))
 
-        msg = "\n".join(menus)
+        iso_today = date.today().isoformat().split("-")
+        formatted_today = iso_today[len(iso_today) - 2 :] + iso_today[:1]
+        msg = f"Olá camaradas! Aqui vão os menus de hoje ({'-'.join(formatted_today)}).\nBom proveito :pizza: \n\n"
+        msg += "\n".join(menus)
         self.save_menu(msg)
         return msg
 
