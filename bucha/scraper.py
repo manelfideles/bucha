@@ -222,13 +222,9 @@ class Scraper:
 
     def is_restaurant_closed(self) -> bool:
         try:
+            xpath = "//a[contains(@aria-label, 'horas') or contains(@aria-label, '1 h') or contains(@aria-label, 'dias') or contains(@aria-label, 'min') or (contains(@aria-label, 'de') and contains(@aria-label, 'às'))]"
             raw_timestamp: WebElement = self.webdriver_wait.until(
-                EC.presence_of_element_located(
-                    (
-                        By.XPATH,
-                        "//a[contains(@aria-label, 'horas') or contains(@aria-label, 'dias') or contains(@aria-label, 'min') or (contains(@aria-label, 'de') and contains(@aria-label, 'às'))]",
-                    )
-                )
+                EC.presence_of_element_located((By.XPATH, xpath))
             )
             timestamp_parts = raw_timestamp.text.split(" ")
             if (
@@ -238,8 +234,8 @@ class Scraper:
             ):
                 return True
             return False
-        except NoSuchElementException:
-            logger.error(f"Could not find timestamp element.")
+        except (NoSuchElementException, TimeoutException):
+            logger.error(f"Could not find element with xpath {xpath}.")
 
     def __call__(self) -> str:
         self.login()
