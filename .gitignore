@@ -1,4 +1,4 @@
-.env
-.venv
-out
+src/.env
+src/.venv
+src/out
 __pycache__
