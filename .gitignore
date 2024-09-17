@@ -1,4 +1,19 @@
 src/.env
 src/.venv
+requirements.txt
+*.zip
+package
 src/out
 __pycache__
+volume
+terraform.tfvars
+ecr
+
+# Local .terraform directories
+.terraform
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+dev.tfvars
