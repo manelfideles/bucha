@@ -4,7 +4,7 @@ module "lambda_function" {
 
   function_name = "buchabot"
   description   = "The main scraper code"
-  handler       = "bucha.main.handler"
+  handler       = "main.handler"
   runtime       = "python3.12"
 
   create_package         = false

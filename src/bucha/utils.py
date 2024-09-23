@@ -1,8 +1,8 @@
 import csv
 from dataclasses import asdict, dataclass
 
-from config import config
-from logger import logger
+from .config import config
+from .logger import logger
 
 
 @dataclass(kw_only=True, frozen=True)

@@ -1,7 +1,8 @@
 import os
 
-from logger import logger
 from requests import post
+
+from .logger import logger
 
 
 def send_slack_message(msg: str) -> ...:

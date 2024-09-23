@@ -17,3 +17,5 @@ ecr
 *.tfstate.*
 
 dev.tfvars
+
+build

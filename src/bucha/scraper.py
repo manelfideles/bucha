@@ -8,9 +8,7 @@ import warnings
 from datetime import date
 from typing import Callable
 
-from config import config
 from dotenv import load_dotenv
-from logger import logger
 from pyshorteners import Shortener
 from selenium import webdriver
 from selenium.common.exceptions import (
@@ -23,7 +21,10 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from utils import Menu, Restaurant, load_restaurants
+
+from .config import config
+from .logger import logger
+from .utils import Menu, Restaurant, load_restaurants
 
 # Setup ----
 for w in [SyntaxWarning, UserWarning]:
