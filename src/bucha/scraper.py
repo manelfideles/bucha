@@ -119,17 +119,18 @@ class Scraper:
         ).click()
 
         try:
-            # check if login is successful
-            username = self.webdriver_wait.until(
+            # Checking if the Facebook logo appears on the top left corner of the page:
+            # Tag id's or other attributes are susceptible to changes due to Facebook being implemented in React
+            self.webdriver_wait.until(
                 EC.presence_of_element_located(
-                    (By.XPATH, '//*[@id=":Rmkql9ad5bb9l5qq9papd5aq:"]/span')
+                    (By.XPATH, "//a[contains(@aria-label, 'Facebook')]")
                 )
-            ).text
+            )
         except NoSuchElementException as e:
-            logger.error(f"Login unsuccessful: {e}")
+            logger.error(f"Something went wrong when logging in: {e}")
             return
 
-        logger.info(f"Logged in to {username}.")
+        logger.info(f"Login sucessful!")
 
     def get_img_src(self, post: WebElement, alias: str) -> str | None:
         """

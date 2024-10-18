@@ -2,7 +2,10 @@ from bucha.messenger import send_slack_message
 from bucha.scraper import scraper
 
 
-def handler(event, context) -> ...:
+def handler(
+    #    event,
+    #    context
+) -> ...:
     print("Buchabot is alive 🍕")
     print("Running scraper...")
     msg = scraper()
@@ -12,4 +15,4 @@ def handler(event, context) -> ...:
     print("Done.")
 
 
-handler(None, None)
+handler()

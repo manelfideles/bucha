@@ -7,7 +7,8 @@ src/out
 __pycache__
 volume
 terraform.tfvars
-ecr
+.aws
+ci-cd.yml
 
 # Local .terraform directories
 .terraform

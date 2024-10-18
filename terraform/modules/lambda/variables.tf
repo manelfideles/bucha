@@ -4,7 +4,8 @@ variable "aws_region" {
 }
 
 variable "slack_incoming_webhook_url" {
-  type = string
+  type      = string
+  sensitive = true
 }
 
 variable "facebook_username" {
@@ -14,4 +15,16 @@ variable "facebook_username" {
 variable "facebook_password" {
   type      = string
   sensitive = true
+}
+
+variable "lambda_function_name" {
+  type = string
+}
+
+variable "image_uri" {
+  type = string
+}
+
+variable "repository_arn" {
+  type = string
 }

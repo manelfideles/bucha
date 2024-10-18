@@ -1,3 +1,7 @@
+###
+# [Legacy] This script deploys the lambda to localstack.
+###
+
 echo "Zipping lambda function..."
 rm lambda.zip
 rm lambda.json

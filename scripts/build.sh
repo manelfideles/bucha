@@ -1,5 +1,9 @@
 #!/bin/bash
 
+###
+# [Legacy] This script builds a .zip packge of the lambda.
+###
+
 # Exit on any error
 set -e
 

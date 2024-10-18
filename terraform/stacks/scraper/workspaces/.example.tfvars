@@ -1,3 +1,6 @@
 facebook_username          = "<your_email_here>"
 facebook_password          = "<your_password_here>"
-slack_incoming_webhook_url = "<your_slack_app_incoming_webhook_url>"
+slack_incoming_webhook_url = "<your_slack_app_incoming_webhook_url_here>"
+repository_name            = "<your_ecr_repo_name_here>"
+image_uri                  = "<your_lambda_function_ecr_image_uri_here>"
+schedule_expression        = "<your_schedule_expression_here>"

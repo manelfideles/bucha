@@ -15,3 +15,21 @@ variable "facebook_password" {
 variable "slack_incoming_webhook_url" {
   type = string
 }
+
+variable "lambda_function_name" {
+  type    = string
+  default = "bucha-bot"
+}
+
+variable "repository_name" {
+  type    = string
+  default = "bucha-bot"
+}
+
+variable "image_uri" {
+  type = string
+}
+
+variable "schedule_expression" {
+  type = string
+}
