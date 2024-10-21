@@ -5,7 +5,7 @@
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 992382607343.dkr.ecr.us-east-1.amazonaws.com
 
 echo "Building image..."
-docker build -t bucha-bot .
+docker build --platform linux/amd64 -t bucha-bot .
 echo "Done."
 
 echo "Tagging image..."
