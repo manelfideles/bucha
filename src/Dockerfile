@@ -8,7 +8,9 @@ COPY .env ${LAMBDA_TASK_ROOT}
 # Compile deps
 RUN pip freeze > requirements.txt
 
-COPY requirements.txt .
+COPY requirements.txt ${LAMBDA_TASK_ROOT}
 RUN pip install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
 
-CMD [ "bucha.main.handler" ]
+COPY main.py ${LAMBDA_TASK_ROOT}
+
+CMD [ "main.handler" ]
