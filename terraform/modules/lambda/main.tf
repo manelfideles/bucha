@@ -11,6 +11,8 @@ module "lambda_function" {
   image_uri      = var.image_uri
   package_type   = "Image"
 
+  architectures = ["arm64"]
+
   attach_policy_json = true
   policy_json = jsonencode({
     Version = "2012-10-17"
@@ -36,11 +38,5 @@ module "lambda_function" {
 
   tags = {
     Name = "buchabot"
-  }
-
-  environment_variables = {
-    SLACK_INCOMING_WEBHOOK_URL = var.slack_incoming_webhook_url
-    FACEBOOK_USERNAME          = var.facebook_username
-    FACEBOOK_PASSWORD          = var.facebook_password
   }
 }

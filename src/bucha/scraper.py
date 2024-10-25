@@ -65,6 +65,7 @@ class Scraper:
     def create_driver(self) -> WebDriver:
         options = webdriver.FirefoxOptions()
         options.add_argument("-headless")
+        # options.binary_location = '/opt/firefox/firefox'
         return webdriver.Firefox(options=options)
 
     def get_page(self, account_id: str) -> None:

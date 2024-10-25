@@ -3,27 +3,14 @@ variable "aws_region" {
   default = "us-east-1"
 }
 
-variable "facebook_username" {
-  type = string
-}
-
-variable "facebook_password" {
-  type      = string
-  sensitive = true
-}
-
-variable "slack_incoming_webhook_url" {
-  type = string
-}
-
 variable "lambda_function_name" {
   type    = string
-  default = "bucha-bot"
+  default = "bucha-bot-lambda"
 }
 
 variable "repository_name" {
   type    = string
-  default = "bucha-bot"
+  default = "bucha-bot-repository"
 }
 
 variable "image_uri" {
@@ -31,5 +18,6 @@ variable "image_uri" {
 }
 
 variable "schedule_expression" {
-  type = string
+  type    = string
+  default = "cron(45 11 ? * MON-FRI *)"
 }
